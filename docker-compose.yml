@@ -1,0 +1,86 @@
+version: "3.9"
+
+# AgentWorld — Local Development Stack
+# Usage: docker-compose up
+# API will be available at http://localhost:5000
+# Tick engine runs automatically in background
+
+services:
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: agentworld-api
+    ports:
+      - "5000:5000"
+    environment:
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-devpassword}
+      - AGENTWORLD_DB=/data/world.db
+      - FLASK_ENV=development
+      - FLASK_DEBUG=1
+    volumes:
+      - agentworld-data:/data
+      - ./backend:/app/backend:ro
+    command: python3 /app/backend/agentworld_api.py
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/agentworld/economy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  tick-engine:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: agentworld-tick
+    environment:
+      - AGENTWORLD_DB=/data/world.db
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-devpassword}
+    volumes:
+      - agentworld-data:/data
+      - ./backend:/app/backend:ro
+    command: python3 /app/backend/tick_engine.py
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  earn-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: agentworld-earn
+    environment:
+      - AGENTWORLD_DB=/data/world.db
+    volumes:
+      - agentworld-data:/data
+      - ./workers:/app/workers:ro
+    command: python3 /app/workers/earn_worker.py
+    depends_on:
+      - tick-engine
+    restart: unless-stopped
+
+volumes:
+  agentworld-data:
+    driver: local
+
+# ─── Usage Notes ────────────────────────────────────────────────────────────
+#
+# First run:
+#   cp .env.example .env
+#   docker-compose up --build
+#
+# Run just the API (no workers):
+#   docker-compose up api
+#
+# Access API:
+#   curl http://localhost:5000/api/agentworld/economy
+#
+# View logs:
+#   docker-compose logs -f api
+#   docker-compose logs -f tick-engine
+#
+# Stop everything:
+#   docker-compose down
